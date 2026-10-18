@@ -17,28 +17,29 @@ function loadOCR(){if(window.Tesseract)return Promise.resolve(window.Tesseract);
 function prepareOCRImage(dataUrl){return new Promise((resolve,reject)=>{let img=new Image();img.onload=()=>{let scale=Math.min(3,Math.max(2,1800/Math.max(img.naturalWidth,img.naturalHeight)));let c=document.createElement('canvas');c.width=Math.round(img.naturalWidth*scale);c.height=Math.round(img.naturalHeight*scale);let ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,0,0,c.width,c.height);let im=ctx.getImageData(0,0,c.width,c.height),d=im.data;for(let i=0;i<d.length;i+=4){let y=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];y=(y-128)*1.35+128;y=Math.max(0,Math.min(255,y));d[i]=d[i+1]=d[i+2]=y}ctx.putImageData(im,0,0);resolve(c.toDataURL('image/png'))};img.onerror=()=>reject(new Error('De foto kon niet worden verwerkt. Probeer een andere foto.'));img.src=dataUrl})}
 function fillFromCardText(text){
  const f=app.querySelector('#form');if(!f)return{};
- const norm=String(text||'').replace(/[|]/g,'I').replace(/[“”]/g,'"').replace(/[’]/g,"'");
+ const norm=String(text||'').replace(/[“”]/g,'"').replace(/[’]/g,"'");
  const lines=norm.split(/\r?\n/).map(x=>x.replace(/\s+/g,' ').trim().replace(/^[|:;,. \-]+|[|:;,. \-]+$/g,'')).filter(Boolean);
  const email=(norm.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)||[])[0]||'';
  const linkedin=(norm.match(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/[\w./-]+/i)||[])[0]||'';
  const phoneMatches=norm.match(/(?:\+\d{1,3}[ .()-]?)?(?:\(?\d{2,4}\)?[ .-]?)\d{3,4}[ .-]\d{2,4}/g)||[];
  const phone=phoneMatches.map(x=>x.trim()).sort((a,b)=>b.length-a.length)[0]||'';
  const set=(name,value)=>{if(f.elements[name])f.elements[name].value=value||''};
+ // Clear fields first: uncertain OCR must never leave stale or fabricated details.
  ['first','last','company','job','email','phone','linkedin','notes'].forEach(n=>set(n,''));
  set('email',email);set('phone',phone);set('linkedin',linkedin?( /^https?:\/\//i.test(linkedin)?linkedin:'https://'+linkedin):'');
- const ignored=/^(www\.|https?:|linkedin|e-?mail|tel\.?|mobile|phone|fax|office|direct|address|ice\b|vat\b|reg\b)/i;
+ const ignored=/^(www\.|https?:|linkedin|e-?mail|tel\.?|mobile|phone|fax|office|direct|address|ice\b|vat\b|reg\b|www\b)/i;
  const contactLine=/@|linkedin\.com|https?:\/\/|\b(?:tel|mobile|phone|fax|office|direct|e-?mail|ice)\b/i;
- const garbageRatio=x=>{const useful=(x.match(/[A-Za-zÀ-ÖØ-öø-ÿ]/g)||[]).length;return useful/Math.max(1,x.length)};
- const candidates=lines.filter(x=>x.length>=3&&x.length<=55&&!ignored.test(x)&&!contactLine.test(x)&&!/\d{4,}/.test(x)&&garbageRatio(x)>.68);
- const roleWords=/manager|director|chief|officer|president|sales|marketing|operations|operation|commercial|broker|agent|chartering|shipping|logistics|owner|founder|consultant|engineer|captain|superintendent|coordinator|executive|specialist|representative|account|business development|procurement|trader|trading|finance|partner/i;
- let jobParts=[];for(let i=candidates.length-1;i>=0;i--){if(roleWords.test(candidates[i])){jobParts.unshift(candidates[i]);candidates.splice(i,1);if(jobParts.length===2)break}}
- const job=jobParts.reverse().join(' / ');
- const companyHints=/shipping|shipmanagement|logistics|maritime|lines\b|tankers|tanker|terminal|trading|chemicals|petrochem|transport|agency|marine|port|group|limited|\bltd\b|\binc\b|\bgmbh\b|\bbv\b|\bnv\b|pte\.?\s*ltd|corporation|\bco\.?\b/i;
- let companyIndex=candidates.findIndex(x=>companyHints.test(x));
- let company=companyIndex>=0?candidates.splice(companyIndex,1)[0]:'';
- const nameLine=candidates.find(x=>/^[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]+(?:\s+[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]+){1,2}$/.test(x));
- let first='',last='';
- if(nameLine){const parts=nameLine.split(/\s+/);first=parts[0];last=parts.slice(1).join(' ')}
+ const cleanLine=x=>x.length>=3&&x.length<=55&&!ignored.test(x)&&!contactLine.test(x)&&!/[\d@#$%{}\\[\]<>_=]/.test(x)&&/^[A-Za-zÀ-ÖØ-öø-ÿ'’.,&() -]+$/.test(x);
+ const words=x=>x.match(/[A-Za-zÀ-ÖØ-öø-ÿ]+/g)||[];
+ const plausibleWords=x=>{const ws=words(x);if(!ws.length)return false;return ws.every(w=>w.length>=2&&/[aeiouyàáâäèéêëìíîïòóôöùúûü]/i.test(w)&&!/^[A-Z]{1,2}$/.test(w))};
+ const candidates=lines.filter(x=>cleanLine(x)&&plausibleWords(x));
+ const roleWords=/\b(manager|director|chief|officer|president|sales|marketing|operations|operation|commercial|broker|agent|chartering|shipping|logistics|owner|founder|consultant|engineer|captain|superintendent|coordinator|executive|specialist|representative|account|procurement|trader|trading|finance|partner|tanker)\b/i;
+ let job='';const jobIndex=candidates.findIndex(x=>roleWords.test(x)&&words(x).length<=7);if(jobIndex>=0)job=candidates.splice(jobIndex,1)[0];
+ const companyHints=/shipping|shipmanagement|logistics|maritime|tankers|tanker|terminal|trading|chemicals|petrochem|transport|agency|marine|port|group|limited|\bltd\b|\binc\b|\bgmbh\b|\bbv\b|\bnv\b|pte\.?\s*ltd|corporation|\bco\b/i;
+ let company='';const companyIndex=candidates.findIndex(x=>companyHints.test(x)&&words(x).length<=8);if(companyIndex>=0)company=candidates.splice(companyIndex,1)[0];
+ // Only auto-fill a name when a short, clean two- or three-word line looks like a real name.
+ const nameLine=candidates.find(x=>{const ws=words(x);return ws.length>=2&&ws.length<=3&&ws.every(w=>w.length>=2&&/^[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ'’-]+$/.test(w))&& !companyHints.test(x)&&!roleWords.test(x)});
+ let first='',last='';if(nameLine){const parts=words(nameLine);first=parts.slice(0,-1).join(' ');last=parts[parts.length-1]}
  set('first',first);set('last',last);set('company',company);set('job',job);
  return{email,phone,company,person:first&&last?first+' '+last:'',job};
 }
@@ -67,7 +68,7 @@ app.addEventListener('click',async e=>{
    }
    let found=fillFromCardText(text);
    let current=app.querySelector('#ocrStatus');
-   if(current){current.textContent='Herkenning uitgevoerd. Controleer alle velden zorgvuldig vóór je opslaat. Notities blijven leeg.';if(!found.person||(!found.company&&!found.email&&!found.phone))current.textContent+=' De herkenning is onzeker. Probeer een scherpere foto waarop alleen het visitekaartje groot in beeld staat.'}
+   if(current){current.textContent='Herkenning uitgevoerd. Controleer alle velden zorgvuldig vóór je opslaat. Notities blijven leeg.';if(!found.person||(!found.company&&!found.email&&!found.phone))current.textContent+=' De herkenning is onzeker. Onbetrouwbare naam-, bedrijfs- en functietekst is bewust leeg gelaten. Probeer een scherpere foto waarop alleen het kaartje groot in beeld staat.'}
  }catch(err){console.error('OCR mislukt:',err);let current=app.querySelector('#ocrStatus');if(current)current.textContent=err.message||'Herkenning mislukt. Probeer opnieuw.'}
  finally{let currentButton=app.querySelector('#scanCard');if(currentButton)currentButton.disabled=false}
 });
