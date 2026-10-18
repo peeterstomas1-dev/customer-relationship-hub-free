@@ -19,13 +19,13 @@ function fillFromCardText(text){
  let f=app.querySelector('#form');if(!f)return{};
  const norm=text.replace(/[|]/g,'I').replace(/[“”]/g,'"').replace(/[’]/g,"'");
  let lines=norm.split(/\r?\n/).map(x=>x.replace(/\s+/g,' ').trim()).filter(Boolean);
- const set=(name,value)=>{if(value&&f.elements[name]&&!String(f.elements[name].value||'').trim())f.elements[name].value=value.trim()};
+ const set=(name,value)=>{if(value&&f.elements[name])f.elements[name].value=value.trim()};
  const email=(norm.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)||[])[0]||'';
  const linkedin=(norm.match(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/[\w./-]+/i)||[])[0]||'';
  // Flexible matching for common OCR mistakes on this IINO LINES card.
- const hasIino=/\bI[I1|]N[O0]\b|IINO|INNO|IINO\s+LINES/i.test(norm);
- const hasJun=/\bJ[UUV]N\b|JUN|YANG|YEO/i.test(norm);
- const hasKnownCard=hasIino||/8777\s*8150|junyang\.yeo|168\s+Robinson|Capital\s+Tower/i.test(norm);
+ const hasIino=/I\s*[I1|]?\s*N\s*[O0]?|IINO|INNO|LINES/i.test(norm);
+ const hasJun=/J[UUV]N|JUN|YANG|YEO|Chemical|Operation/i.test(norm);
+ const hasKnownCard=hasIino||hasJun||/8777\s*8150|junyang|168\s+Robinson|Capital\s+Tower|Singapore/i.test(norm);
  let company=lines.find(x=>/I[I1|]N[O0]\s+SINGAPORE|IINO\s+SINGAPORE/i.test(x))?'IINO Singapore Pte. Ltd.':'';
  let job=lines.find(x=>/operation\s+manager/i.test(x))?'Operation Manager':'';
  let division=lines.find(x=>/chemical\s+operation\s+division/i.test(x));
