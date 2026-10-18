@@ -54,15 +54,16 @@ app.addEventListener('click',async e=>{
  try{
    let T=await loadOCR();let variants=await prepareOCRImages(photoData);
    let logger=m=>{let current=app.querySelector('#ocrStatus');if(current&&m.status==='recognizing text')current.textContent='Tekst herkennen… '+Math.round((m.progress||0)*100)+'%'};
-   let attempts=[];let jobNo=0;
-   for(const variant of variants){
-     // Sparse text works better for many business cards; try both line and block modes.
-     for(const psm of [11,6]){
-       jobNo++;let result=await T.recognize(variant.src,'eng',{logger,tessedit_pageseg_mode:psm});
-       let data=result.data||{},raw=data.text||'';
-       let score=(data.confidence||0)*0.15+(raw.match(/@/g)||[]).length*18+(raw.match(/\+?\d[\d .()-]{6,}/g)||[]).length*5+(raw.match(/shipping|broker|partner|manager|director|tanker|email|mobile|office|direct|www/i)||[]).length*8+(raw.match(/[A-Za-z]{3,}/g)||[]).length*0.25;
-       attempts.push({data,score,raw});
-     }
+   let attempts=[];
+   // Keep mobile processing manageable: use the original image and only a few useful crops,
+   // with one recognition mode per image rather than dozens of repeated passes.
+   const selected=variants.filter(v=>[0,1,2,4,6].includes(v.crop)&&v.mode===0).slice(0,5);
+   for(let i=0;i<selected.length;i++){
+     if(status)status.textContent='Tekst herkennen… poging '+(i+1)+' van '+selected.length;
+     let result=await T.recognize(selected[i].src,'eng',{logger,tessedit_pageseg_mode:11});
+     let data=result.data||{},raw=data.text||'';
+     let score=(data.confidence||0)*0.15+(raw.match(/@/g)||[]).length*18+(raw.match(/\+?\d[\d .()-]{6,}/g)||[]).length*5+(raw.match(/shipping|broker|partner|manager|director|tanker|email|mobile|office|direct|www/i)||[]).length*8+(raw.match(/[A-Za-z]{3,}/g)||[]).length*0.25;
+     attempts.push({data,score,raw});
    }
    // Merge unique OCR lines from all variants so a good email from one crop and a good name from another aren't discarded.
    attempts.sort((a,b)=>b.score-a.score);let seen=new Set(),merged=[];
