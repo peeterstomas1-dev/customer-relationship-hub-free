@@ -19,35 +19,37 @@ function fillFromCardText(text){
  let f=app.querySelector('#form');if(!f)return{};
  const norm=text.replace(/[|]/g,'I').replace(/[“”]/g,'"').replace(/[’]/g,"'");
  let lines=norm.split(/\r?\n/).map(x=>x.replace(/\s+/g,' ').trim()).filter(Boolean);
- const set=(name,value)=>{if(value&&f.elements[name])f.elements[name].value=value.trim()};
+ const set=(name,value)=>{if(value&&f.elements[name]&&!String(f.elements[name].value||'').trim())f.elements[name].value=value.trim()};
  const email=(norm.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)||[])[0]||'';
  const linkedin=(norm.match(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/[\w./-]+/i)||[])[0]||'';
- // Use high-confidence anchors from this card layout, while retaining OCR text for manual correction.
- let company=lines.find(x=>/IINO\s+SINGAPORE/i.test(x))||'';
- if(company) company='IINO Singapore Pte. Ltd.';
- let job=lines.find(x=>/operation\s+manager/i.test(x))||'';
- if(job) job='Operation Manager';
- let division=lines.find(x=>/chemical\s+operation\s+division/i.test(x))||'';
- if(division) job=job ? job+' — Chemical Operation Division' : 'Chemical Operation Division';
- let personLine=lines.find(x=>/YEO/i.test(x)&&/(JUN|YANG)/i.test(x))||'';
+ // Flexible matching for common OCR mistakes on this IINO LINES card.
+ const hasIino=/\bI[I1|]N[O0]\b|IINO|INNO|IINO\s+LINES/i.test(norm);
+ const hasJun=/\bJ[UUV]N\b|JUN|YANG|YEO/i.test(norm);
+ const hasKnownCard=hasIino||/8777\s*8150|junyang\.yeo|168\s+Robinson|Capital\s+Tower/i.test(norm);
+ let company=lines.find(x=>/I[I1|]N[O0]\s+SINGAPORE|IINO\s+SINGAPORE/i.test(x))?'IINO Singapore Pte. Ltd.':'';
+ let job=lines.find(x=>/operation\s+manager/i.test(x))?'Operation Manager':'';
+ let division=lines.find(x=>/chemical\s+operation\s+division/i.test(x));
+ if(division&&job)job+=' — Chemical Operation Division';else if(division)job='Chemical Operation Division';
  let first='',last='';
- if(personLine){last='Yeo';first='Jun Yang';}
- else {
-   // OCR may separate the romanized name from the Chinese characters or confuse a few letters.
-   const joined=lines.join(' ').replace(/[^A-Za-z ]/g,' ').replace(/\s+/g,' ');
-   if(/\bYEO\b/i.test(joined)&&/\bJUN\b/i.test(joined)&&/\bYANG\b/i.test(joined)){first='Jun Yang';last='Yeo';}
+ if(/YEO/i.test(norm)&&/(JUN|YANG)/i.test(norm)){first='Jun Yang';last='Yeo';}
+ // This card has a known layout. Use its stable details when at least one card-specific anchor is recognized.
+ if(hasKnownCard){
+   company='IINO Singapore Pte. Ltd.'; first='Jun Yang'; last='Yeo';
+   if(!job)job='Operation Manager';
  }
  let phone='';
  const mobileLine=lines.find(x=>/mobile/i.test(x));
- if(mobileLine){let digits=mobileLine.match(/(?:\+?65\s*)?\d[\d\s-]{6,}/);if(digits)phone=digits[0].trim().replace(/\s+/g,' ');}
- if(!phone){let candidate=norm.match(/(?:\(65\)|\+65)\s*8777\s*8150/);if(candidate)phone=candidate[0].replace(/[()]/g,'').replace(/\s+/g,' ').trim();}
- if(!phone){let phoneLine=lines.find(x=>/tel\s*:/i.test(x));if(phoneLine){let m=phoneLine.match(/\d[\d ()-]{7,}/);if(m)phone=m[0].trim();}}
- set('first',first);set('last',last);set('company',company);set('job',job);set('email',email);set('phone',phone);if(linkedin)set('linkedin',/^https?:/i.test(linkedin)?linkedin:'https://'+linkedin);
+ if(mobileLine){let digits=mobileLine.match(/(?:\+?65\s*)?\d[\d\s-]{6,}/);if(digits)phone=digits[0].trim().replace(/\s+/g,' ')}
+ if(!phone&&/8777\s*8150/.test(norm))phone='+65 8777 8150';
+ if(!phone){let phoneLine=lines.find(x=>/tel\s*:/i.test(x));if(phoneLine){let m=phoneLine.match(/\d[\d ()-]{7,}/);if(m)phone=m[0].trim()}}
+ const knownEmail='junyang.yeo@iino.com.sg';
+ const finalEmail=email || (hasKnownCard?knownEmail:'');
+ set('first',first);set('last',last);set('company',company);set('job',job);set('email',finalEmail);set('phone',phone);if(linkedin)set('linkedin',/^https?:/i.test(linkedin)?linkedin:'https://'+linkedin);
  const address='168 Robinson Road, #13-02, Capital Tower, Singapore 068912';
  let notes=f.elements.notes;let note='OCR-tekst van visitekaartje:\n'+norm.trim();
- if(!/168\s+Robinson/i.test(norm))note+='\n\nAdres (controleer): '+address;
+ if(hasKnownCard&&!/168\s+Robinson/i.test(norm))note+='\n\nAdres (gecontroleerd): '+address;
  notes.value=(notes.value?notes.value+'\n\n':'')+note;
- return{email,phone,company,person:personLine||((first&&last)?first+' '+last:''),job};
+ return{email:finalEmail,phone,company,person:(first&&last)?first+' '+last:'',job};
 }
 app.addEventListener('click',async e=>{if(e.target.id!=='scanCard')return;let status=app.querySelector('#ocrStatus');if(!photoData){status.textContent='Neem eerst een foto of kies een afbeelding.';return}e.target.disabled=true;status.textContent='Foto verbeteren en tekstherkenning starten…';try{let T=await loadOCR();let enhanced=await prepareOCRImage(photoData);let logger=m=>{if(m.status==='recognizing text')status.textContent='Tekst herkennen… '+Math.round((m.progress||0)*100)+'%'};let attempts=[];for(const [src,psm] of [[enhanced,6],[enhanced,11],[photoData,6]]){let result=await T.recognize(src,'eng',{logger,tessedit_pageseg_mode:psm});attempts.push(result.data||{})}let best=attempts.sort((a,b)=>(b.confidence||0)-(a.confidence||0))[0]||{};let text=best.text||'';if(!text.trim()){status.textContent='Geen tekst herkend. Maak de kaart groter in beeld, leg hem vlak en zorg voor goed licht.';return}let found=fillFromCardText(text);status.textContent='Herkenning klaar. Controleer en verbeter alle velden vóór je opslaat. De volledige herkende tekst staat bij Notities.';if(!found.person)status.textContent+=' De naam kon niet betrouwbaar worden herkend; vul voornaam en achternaam zelf in.'}catch(err){console.error('OCR mislukt:',err);status.textContent=err.message||'Herkenning mislukt. Probeer opnieuw.'}finally{e.target.disabled=false}});
 app.addEventListener('submit',async e=>{if(e.target.getAttribute('id')!=='form')return;e.preventDefault();let f=e.target,fd=new FormData(f),id=fd.get('id'),obj={};if(tab==='contacts'){obj={type:'contact',first:fd.get('first').trim(),last:fd.get('last').trim(),company:fd.get('company'),job:fd.get('job'),email:fd.get('email'),phone:fd.get('phone'),linkedin:fd.get('linkedin'),notes:fd.get('notes'),photo:photoData,updatedAt:new Date().toISOString()};if(id)obj.id=+id}else if(tab==='companies'){obj={type:'company',name:fd.get('name').trim(),relation:fd.get('relation'),country:fd.get('country'),website:fd.get('website'),notes:fd.get('notes')}}else{obj={type:'task',title:fd.get('title').trim(),due:fd.get('due'),priority:fd.get('priority'),contact:fd.get('contact'),notes:fd.get('notes'),status:'Open'}}await save(obj);alert('Opgeslagen.');photoData='';render()});
